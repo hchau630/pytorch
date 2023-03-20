@@ -645,21 +645,39 @@ def meta_conv(
     return out
 
 
+@register_meta(aten.mkldnn_convolution)
+def meta_mkldnn_convolution(
+    input_tensor: torch.Tensor,
+    weight: torch.Tensor,
+    bias: torch.Tensor,
+    padding: List[int],
+    stride: List[int],
+    dilation: List[int],
+    groups: int,
+):
+    shape_out = calc_conv_nd_return_shape(
+        input_tensor,
+        weight,
+        stride,
+        padding,
+        dilation,
+        False,
+        groups,
+        None,
+    )
+
+    out = input_tensor.new_empty(shape_out)
+    out_memory_format = torch.channels_last
+    out = out.to(memory_format=out_memory_format)  # type: ignore[call-overload]
+    return out
+
+
 if torch._C.has_mkldnn:
     _meta_lib_dont_use_me_use_register_meta_for_mkldnn = torch.library.Library(
         "mkldnn", "IMPL", "Meta"
     )
 
-    def pick_mkldnn_conv_memory_format(input_tensor, weight):
-        if weight.is_mkldnn:
-            return torch.channels_last
-        if is_channels_last(input_tensor) or is_channels_last(weight):
-            return torch.channels_last
-        if input_tensor.is_contiguous(memory_format=torch.contiguous_format):
-            return torch.contiguous_format
-        elif input_tensor.is_contiguous(memory_format=torch.preserve_format):
-            return torch.preserve_format
-
+    # TODO: will be removed after moving all fx fusion after AOTAutograd
     @register_meta(torch.ops.mkldnn._convolution_pointwise.default)
     def meta_mkldnn_convolution_default(
         input_tensor,
@@ -700,24 +718,6 @@ if torch._C.has_mkldnn:
         out = input_tensor.new_empty(other.size())
         out = out.to(memory_format=torch.channels_last)  # type: ignore[call-overload]
         return out
-
-    @register_meta(torch.ops.mkldnn._convolution_pointwise_.binary)
-    def meta_mkldnn_convolution_binary_inplace(
-        input_tensor,
-        other,
-        weight,
-        bias,
-        padding,
-        stride,
-        dilation,
-        groups,
-        binary_attr,
-        alpha,
-        unary_attr,
-        unary_scalars,
-        unary_algorithm,
-    ):
-        return other
 
     @register_meta(torch.ops.mkldnn._linear_pointwise.default)
     def meta_linear_pointwise_default(
